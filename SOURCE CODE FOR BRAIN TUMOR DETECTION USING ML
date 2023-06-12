@@ -1,0 +1,516 @@
+#PYTHON PROGRAM FOR BRAIN TUMOR DETECTION USING MACHINE LEARNING
+
+Import necessary Python packages
+
+importnumpyas np
+importmatplotlib.pyplotasplt
+frommatplotlibimportpyplot
+fromnumpyimportexpand_dims
+import pandas aspd
+importtensorflowastf
+fromtqdmimporttqdm
+import cv2
+importimutils
+importshutil
+importitertools
+importseabornassns
+importumap
+from PIL import Image
+fromscipyimportmisc
+fromosimportlistdir
+fromos.pathimportisfile, join
+fromscipyimportmisc
+from random import shuffle
+from collections import Counter
+fromsklearn.decompositionimport PCA
+fromsklearn.manifoldimport TSNE
+fromitertoolsimport chain
+importos
+import sys
+import random
+import warnings
+from skimage.io import imread,imshow,imread_collection,concatenate_images
+fromskimage.transformimport resize
+fromskimage.morphologyimport label
+fromsklearn.preprocessingimportLabelBinarizer
+fromsklearn.model_selectionimporttrain_test_split
+fromsklearn.utilsimport shuffle
+fromsklearn.decompositionimport PCA
+fromsklearn.manifoldimport TSNE
+fromsklearn.datasetsimportmake_circles
+fromsklearn.metricsimportaccuracy_score,confusion_matrix
+fromsklearn.metricsimport f1_score
+fromsklearn.metricsimportprecision_score
+fromsklearn.metricsimportrecall_score
+fromsklearn.metricsimportcohen_kappa_score
+fromsklearn.metricsimportroc_auc_score
+fromtensorflow.keras.layersimport Conv2D, Input, ZeroPadding2D,BatchNormalization, Activation,
+MaxPooling2D, Flatten, Dense
+fromtensorflow.keras.modelsimport Model,load_model
+fromtensorflow.keras.callbacksimportTensorBoard,ModelCheckpoint
+importplotly.graph_objsas go
+fromplotly.offlineimportinit_notebook_mode,iplot
+fromplotlyimport tools
+from keras.applications.vgg16 import VGG16,preprocess_input
+from keras.applications.inception_v3 import InceptionV3,inception_v3
+from keras.applications.resnet50 import ResNet50,resnet50
+fromkeras.preprocessing.imageimportImageDataGenerator
+fromkeras.preprocessing.imageimportload_img
+fromkeras.preprocessing.imageimportimg_to_array
+fromkerasimport layers
+fromkeras.modelsimport Model, Sequential
+fromkeras.modelsimport Model,load_model
+fromkeras.utils.np_utilsimportto_categorical
+fromkeras.layersimport Input
+fromkeras.layersimport Activation, Flatten, Dense
+fromkeras.layers.coreimport Dropout, Lambda
+fromkeras.layers.convolutionalimport Conv2D, Conv2DTranspose
+fromkeras.layers.poolingimport MaxPooling2D
+fromkeras.layers.mergeimport concatenate
+fromkeras.optimizersimport Adam,RMSprop
+fromkeras.callbacksimportEarlyStopping,ModelCheckpoint
+fromkerasimport backend as K
+importkeras
+init_notebook_mode(connected=True)
+RANDOM_SEED =123
+fromIPython.displayimportclear_output
+!pip installimutils
+clear_output()
+
+Uploading the dataset
+
+fromzipfileimportZipFile
+file_name='data.zip'
+withZipFile(file_name,'r')aszipObj:
+zipObj.extractall()
+print('done')
+
+Data Augmentation
+
+defaugment_data(fdir,sdir,num):
+img_gen=ImageDataGenerator(rotation_range=15,
+width_shift_range=0.05,
+height_shift_range=0.05,
+rescale=1./255,
+shear_range=0.05,
+brightness_range=(0.1,1.5),
+horizontal_flip=True,
+vertical_flip=True,
+fill_mode='nearest')
+for file inos.listdir(fdir):
+image=cv2.imread(fdir+'/'+file)
+image=image.reshape((1,)+image.shape)
+prefix='aug_'+ file[:-4]
+i=0
+forbatch in
+img_gen.flow(x=image,batch_size=1,save_to_dir=sdir,save_prefix=prefix,save_format='jpg'):
+i+=1
+if(i>num):
+break
+%%time
+sdir='/content/data'
+augment_data('/content/data/yes/',sdir+'/yes',6)
+augment_data('/content/data/no/',sdir+'/no',9)
+defsummary():
+yes='/content/data/yes/'
+no='/content/data/no/'
+nyes=len(os.listdir(yes))
+nno=len(os.listdir(no))
+ntotal=nyes+nno
+print('Total Images : ',ntotal)
+print('Yes Images : {} ( {}% )'.format(nyes,np.round((nyes/ntotal*1.0)*100),3))
+print('No Images : {} ( {}% )'.format(nno,np.round((nno/ntotal*1.0)*100),3))
+
+Splitting the dataset into TRAIN, TEST and VAL and feature extraction
+
+!apt-get install tree
+!mkdir TRAIN TEST VAL TRAIN/YES TRAIN/NO TEST/YES TEST/NO VAL/YES VAL/NO
+!tree -d
+IMG_PATH ='/content/brain_tumor_dataset'
+for CLASS inos.listdir(IMG_PATH):
+ifnotCLASS.startswith('.'):
+IMG_NUM =len(os.listdir(IMG_PATH +'/'+ CLASS))
+for(n, FILE_NAME)inenumerate(os.listdir(IMG_PATH +'/'+ CLASS)):
+img= IMG_PATH +'/'+ CLASS +'/'+ FILE_NAME
+if n <5:
+shutil.copy(img,'TEST/'+CLASS.upper()+'/'+ FILE_NAME)
+elif n <0.8*IMG_NUM:
+shutil.copy(img,'TRAIN/'+CLASS.upper()+'/'+ FILE_NAME)
+else:
+shutil.copy(img,'VAL/'+CLASS.upper()+'/'+ FILE_NAME)
+defload_data(dir_path,img_size=(100,100)):
+X =[]
+y =[]
+i=0
+labels=dict()
+for path intqdm(sorted(os.listdir(dir_path))):
+ifnotpath.startswith('.'):
+labels[i]= path
+for file inos.listdir(dir_path+ path):
+ifnotfile.startswith('.'):
+img= cv2.imread(dir_path+'/'+ path +'/'+ file )
+X.append(img)
+y.append(i)
+i+=1
+X =np.array(X)
+y =np.array(y)
+print(f'{len(X)} images loaded from {dir_path} directory.')
+return X, y, labels
+TRAIN_DIR ='TRAIN/'
+TEST_DIR ='TEST/'
+VAL_DIR ='VAL/'
+IMG_SIZE =(224,224)
+X_train,y_train, labels =load_data(TRAIN_DIR, IMG_SIZE)
+X_test,y_test, _ =load_data(TEST_DIR, IMG_SIZE)
+X_val,y_val, _ =load_data(VAL_DIR, IMG_SIZE)
+
+Image pre-processing and performing binary thresholding
+
+defcrop_imgs(set_name,add_pixels_value=0):
+set_new=[]
+forimginset_name:
+gray= cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+gray= cv2.GaussianBlur(gray,(5,5),0)
+thresh= cv2.threshold(gray,45,255, cv2.THRESH_BINARY)[1]
+thresh= cv2.erode(thresh,None, iterations=2)
+thresh= cv2.dilate(thresh,None, iterations=2)
+cnts= cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+cnts=imutils.grab_contours(cnts)
+c =max(cnts, key=cv2.contourArea)
+extLeft=tuple(c[c[:,:,0].argmin()][0])
+extRight=tuple(c[c[:,:,0].argmax()][0])
+extTop=tuple(c[c[:,:,1].argmin()][0])
+extBot=tuple(c[c[:,:,1].argmax()][0])
+ADD_PIXELS =add_pixels_value
+new_img=img[extTop[1]-ADD_PIXELS:extBot[1]+ADD_PIXELS,extLeft[0]-
+ADD_PIXELS:extRight[0]+ADD_PIXELS].copy()
+set_new.append(new_img)
+returnnp.array(set_new)
+img= cv2.imread('/content/brain_tumor_dataset/yes/Y108.jpg')
+img= cv2.resize(
+img,
+dsize=IMG_SIZE,
+interpolation=cv2.INTER_CUBIC
+)
+gray= cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+gray= cv2.GaussianBlur(gray,(5,5),0)
+thresh= cv2.threshold(gray,45,255, cv2.THRESH_BINARY)[1]
+thresh= cv2.erode(thresh,None, iterations=2)
+thresh= cv2.dilate(thresh,None, iterations=2)
+cnts= cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+cnts=imutils.grab_contours(cnts)
+c =max(cnts, key=cv2.contourArea)
+extLeft=tuple(c[c[:,:,0].argmin()][0])
+extRight=tuple(c[c[:,:,0].argmax()][0])
+extTop=tuple(c[c[:,:,1].argmin()][0])
+extBot=tuple(c[c[:,:,1].argmax()][0])
+img_cnt=cv2.drawContours(img.copy(),[c],-1,(0,255,255),4)
+img_pnt=cv2.circle(img_cnt.copy(),extLeft,8,(0,0,255),-1)
+img_pnt=cv2.circle(img_pnt,extRight,8,(0,255,0),-1)
+img_pnt=cv2.circle(img_pnt,extTop,8,(255,0,0),-1)
+img_pnt=cv2.circle(img_pnt,extBot,8,(255,255,0),-1)
+ADD_PIXELS =0
+new_img=img[extTop[1]-ADD_PIXELS:extBot[1]+ADD_PIXELS,extLeft[0]-
+ADD_PIXELS:extRight[0]+ADD_PIXELS].copy()
+X_train_crop=crop_imgs(set_name=X_train)
+X_val_crop=crop_imgs(set_name=X_val)
+X_test_crop=crop_imgs(set_name=X_test)
+defsave_new_images(x_set,y_set,folder_name):
+i=0
+for(img,imclass)inzip(x_set,y_set):
+ifimclass==0:
+cv2.imwrite(folder_name+'/'+'NO/'+str(i)+'.jpg',img)
+else:
+cv2.imwrite(folder_name+'/'+'YES/'+str(i)+'.jpg',img)
+i+=1
+!mkdir TRAIN_CROP TEST_CROP VAL_CROP TRAIN_CROP/YES
+TEST_CROP/YES TEST_CROP/NO VAL_CROP/YES VAL_CROP/NO
+save_new_images(X_train_crop,y_train,folder_name='/content/TRAIN_CROP')
+save_new_images(X_val_crop,y_val,folder_name='/content/VAL_CROP')
+save_new_images(X_test_crop,y_test,folder_name='/content/TEST_CROP/')
+TRAIN_CROP/NO
+defpreprocess_imgs(set_name,img_size):
+set_new=[]
+forimginset_name:
+img= cv2.resize(
+img,
+dsize=img_size,
+interpolation=cv2.INTER_CUBIC
+)
+set_new.append(preprocess_input(img
+returnnp.array(set_new)
+X_train_prep=preprocess_imgs(set_name=X_train_crop,img_size=IMG_SIZE)
+X_test_prep=preprocess_imgs(set_name=X_test_crop,img_size=IMG_SIZE)
+X_val_prep=preprocess_imgs(set_name=X_val_crop,img_size=IMG_SIZE)
+
+Model construction
+1. Load pre-trained models (with transfer learning
+
+fromzipfileimportZipFile
+file_name="vgg16_weights_tf_dim_ordering_tf_kernels_notop.h5.zip"
+withZipFile(file_name,'r')aszipfile:
+zipfile.extractall()
+print('Done')
+fromzipfileimportZipFile
+file_name="resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5.zip"
+withZipFile(file_name,'r')aszipfile:
+zipfile.extractall()
+print('Done')
+fromzipfileimportZipFile
+file_name="inception_v3_weights_tf_dim_ordering_tf_kernels_notop.h5.zip"
+withZipFile(file_name,'r')aszipfile:
+zipfile.extractall()
+print('Done')
+# load base model
+ResNet50_weight_path ='/content/resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5'
+resnet50_x =ResNet50(
+weights=ResNet50_weight_path,
+include_top=False,
+input_shape=IMG_SIZE +(3,)
+)
+NUM_CLASSES = 1
+resnet50 = Sequential()
+resnet50.add(resnet50_x)
+resnet50.add(layers.Dropout(0.3))
+resnet50.add(layers.Flatten())
+resnet50.add(layers.Dropout(0.5))
+resnet50.add(layers.Dense(NUM_CLASSES, activation='sigmoid'))
+resnet50.layers[0].trainable = False
+resnet50.compile(
+loss='binary_crossentropy',
+optimizer=RMSprop(lr=1e-4),
+metrics=['accuracy']
+)
+resnet50.summary()
+InceptionV3_weight_path ='/content/inception_v3_weights_tf_dim_ordering_tf_kernels_notop.h5'
+inceptionV3 =InceptionV3(
+weights=InceptionV3_weight_path,
+include_top=False,
+input_shape=IMG_SIZE +(3,)
+)
+NUM_CLASSES = 1
+inception_v3 = Sequential()
+inception_v3.add(inceptionV3)
+inception_v3.add(layers.Dropout(0.3))
+inception_v3.add(layers.Flatten())
+inception_v3.add(layers.Dropout(0.5))
+inception_v3.add(layers.Dense(NUM_CLASSES, activation='sigmoid'))
+inception_v3.layers[0].trainable = False
+inception_v3.compile(
+loss='binary_crossentropy',
+optimizer=RMSprop(lr=1e-4),
+metrics=['accuracy']
+)
+inception_v3.summary()
+vgg16_weight_path ='/content/vgg16_weights_tf_dim_ordering_tf_kernels_notop.h5'
+vgg= VGG16(
+weights=vgg16_weight_path,
+include_top=False,
+input_shape=IMG_SIZE +(3,)
+)
+NUM_CLASSES =1
+vgg16 =Sequential()
+vgg16.add(vgg)
+vgg16.add(layers.Dropout(0.3))
+vgg16.add(layers.Flatten())
+vgg16.add(layers.Dropout(0.5))
+vgg16.add(layers.Dense(NUM_CLASSES, activation='sigmoid'))
+vgg16.layers[0].trainable =False
+vgg16.compile(
+loss='binary_crossentropy',
+optimizer=RMSprop(lr=1e-4),
+metrics=['accuracy']
+)
+vgg16.summary()
+
+2. Build model from scratch (without transfer learning)
+
+defbuild_model(in_shape):
+xinput=Input(in_shape)
+x=ZeroPadding2D((2,2))(xinput)
+x=Conv2D(32,(7,7),strides=(1,1))(x)
+x=BatchNormalization(axis=3)(x)
+x=Activation('relu')(x)
+x=MaxPooling2D((4,4))(x)
+x=MaxPooling2D((4,4))(x)
+x=Flatten()(x)
+x=Dense(1,activation='sigmoid')(x)
+model=Model(inputs=xinput,outputs=x,name="Tumour_Detection_Model")
+return model
+model=build_model((240,240,3))
+model.summary()
+
+Machine Learning training
+
+TRAIN_DIR ='TRAIN_CROP/'
+VAL_DIR ='VAL_CROP/'
+train_datagen=ImageDataGenerator(
+rotation_range=15,
+width_shift_range=0.1,
+height_shift_range=0.1,
+shear_range=0.1,
+brightness_range=[0.5,1.5],
+horizontal_flip=True,
+vertical_flip=True,
+preprocessing_function=preprocess_input
+)
+test_datagen=ImageDataGenerator(
+preprocessing_function=preprocess_input
+)
+train_generator=train_datagen.flow_from_directory(
+TRAIN_DIR,
+color_mode='rgb',
+target_size=IMG_SIZE,
+batch_size=32,
+class_mode='binary',
+seed=RANDOM_SEED
+)
+validation_generator=test_datagen.flow_from_directory(
+VAL_DIR,
+color_mode='rgb',
+target_size=IMG_SIZE,
+batch_size=16,
+class_mode='binary',
+seed=RANDOM_SEED
+)
+import time
+start=time.time()
+vgg16_history
+=
+vgg16.fit_generator(train_generator,steps_per_epoch=30,epochs=30,validation_data=validation_generato
+r,validation_steps=30)
+end=time.time()
+print(end - start)
+import time
+start=time.time()
+inception_v3_history = inception_v3.fit_generator(
+train_generator,
+steps_per_epoch=30,
+epochs=30,
+validation_data=validation_generator,
+validation_steps=30,
+)
+end=time.time()
+print(end - start)
+import time
+start=time.time()
+resnet50_history = resnet50.fit_generator(
+train_generator,
+steps_per_epoch=30,
+epochs=30,
+validation_data=validation_generator,
+validation_steps=30,
+)
+end=time.time()
+print(end - start)
+model.compile(optimizer='adam',loss='binary_crossentropy',metrics=['accuracy'])
+model.fit(xtrain,ytrain,epochs=30,batch_size=32, verbose=1,validation_data=(xval,yval))
+
+Evaluation of model performance
+
+print('Train: %.3f, Test: %.3f'%(train_acc,test_acc))
+accuracy=accuracy_score(y_test, predictions)
+print('Accuracy: %f'% accuracy))
+precision=precision_score(y_test, predictions)
+print('Precision: %f'% precision)
+recall=recall_score(y_test, predictions)
+print('Recall: %f'% recall)
+f1 = f1_score(y_test, predictions)
+print('F1 score: %f'% f1)
+kappa=cohen_kappa_score(y_test, predictions)
+print('Cohens kappa: %f'% kappa)
+auc=roc_auc_score(y_test, predictions)
+print('ROC AUC: %f'%auc)
+matrix=confusion_matrix(y_test, predictions)
+print(matrix)
+history_1= vgg16_history
+history_2=inception_v3_history
+history_3=resnet50_history
+defModelGraphTrainngSummary(history,N,model_name):
+print("Generating plots...")
+sys.stdout.flush()
+matplotlib.use("Agg")
+matplotlib.pyplot.style.use("ggplot")
+matplotlib.pyplot.figure()
+matplotlib.pyplot.plot(np.arange(0, N),history.history["loss"], label="train_loss")
+matplotlib.pyplot.plot(np.arange(0, N),history.history["val_loss"], label="val_loss")
+matplotlib.pyplot.title("Training Loss and Accuracy on Brain Tumor Classification")
+matplotlib.pyplot.xlabel("Epoch #")
+matplotlib.pyplot.ylabel("Loss/Accuracy of "+model_name)
+matplotlib.pyplot.legend(loc="lower left")
+matplotlib.pyplot.savefig("plot.png")
+defModelGraphTrainngSummaryAcc(history,N,model_name):
+print("Generating plots...")
+sys.stdout.flush()
+matplotlib.use("Agg")
+matplotlib.pyplot.style.use("ggplot")
+matplotlib.pyplot.figure()
+matplotlib.pyplot.plot(np.arange(0, N),history.history["accuracy"], label="train_accuracy")
+matplotlib.pyplot.plot(np.arange(0, N),history.history["val_accuracy"], label="val_accuracy")
+matplotlib.pyplot.title("Training Loss and Accuracy on Brain Tumor Classification")
+matplotlib.pyplot.xlabel("Epoch #")
+matplotlib.pyplot.ylabel("Accuracy of "+model_name)
+matplotlib.pyplot.legend(loc="lower left")
+matplotlib.pyplot.savefig("plot.png")
+forX_modelin[{'name':'VGG-16','history':history_1,'model':vgg16},
+{'name':'Inception_v3','history':history_2,'model':inception_v3},
+{'name':'Resnet','history':history_3,'model':resnet50}]:
+ModelGraphTrainngSummary(X_model['history'],30,X_model['name'])
+ModelGraphTrainngSummaryAcc(X_model['history'],30,X_model['name'])
+predictions=X_model['model'].predict(X_val_prep)
+predictions=[1if x>0.5else0for x in predictions]
+accuracy=accuracy_score(y_val, predictions)
+print('Val Accuracy = %.2f'% accuracy)
+confusion_mtx=confusion_matrix(y_val, predictions)
+cm =plot_confusion_matrix(confusion_mtx, classes =list(labels.items()), normalize=False)
+defplot_metrics(history):
+train_loss=history['loss']
+val_loss=history['val_loss']
+train_acc=history['accuracy']
+val_acc=history['val_accuracy']
+plt.figure()
+plt.plot(train_loss, label='Training Loss')
+plt.plot(val_loss, label='Validation Loss')
+plt.title('Loss')
+plt.legend()
+plt.show()
+plt.figure()
+plt.plot(train_acc, label='Training Accuracy')
+plt.plot(val_acc, label='Validation Accuracy')
+plt.title('Accuracy')
+plt.legend()
+plt.show()
+plot_metrics(model.history.history)
+plt.figure()
+plt.plot(train_hist,color='r',linewidth=2,label='train')
+plt.plot(val_hist,color='g',linewidth=2,label='test')
+plt.xlabel('iterations')
+plt.legend()
+plt.show()
+vgg16.save('2020-04-24_VGG_model.h5')
+inception_v3.save('2020-04-24_inception_v3.h5')
+resnet50.save('2020-04-24_resnet50.h5')
+filepath="tumor-detection-{epoch:02d}-{val_acc:.2f}.model"
+checkpoint=ModelCheckpoint(filepath,
+monitor='val_acc',
+mode='max')
+verbose=1,save_best_only=True,
+from mpl_toolkits.axes_grid1 importmake_axes_locatable
+defimplot(mp,ax,cmap='gray'):
+im=ax.imshow(mp.astype(np.float32),cmap=cmap)
+divider=make_axes_locatable(ax)
+cax=divider.append_axes("right", size="5%", pad=0.05)
+cbar=plt.colorbar(im,cax=cax)
+xb,yb=get_batch(X_p_test,Y_p_test,X_n_test,Y_n_test,n=Nbatch)
+yh=sess.run(yhat,{x:xb})
+ypred=np.argmax(yh,axis=3)
+foriinrange(7):
+plt.figure()
+fig,(ax1, ax2, ax3)=plt.subplots(1,3,sharey=True,figsize=(10,3))
+implot(xb[i,:,:,0],ax1)
+implot(yb[i,:,:],ax2,cmap='Spectral')
+implot(ypred[i,:,:],ax3,cmap='Spectral')
+plt.grid('off')
+plt.tight_layout()
+plt.savefig('images_{}.pdf'.format(i),dpi=600)
+plt.show()
